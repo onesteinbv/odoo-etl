@@ -110,6 +110,10 @@ class action(models.Model):
         readonly=True,
         string='Target Records',
         )
+    save_as_attachment = fields.Boolean(
+        string="Save as attachment"
+        )
+
 
     _constraints = [
     ]
@@ -585,7 +589,7 @@ class action(models.Model):
             _logger.info('Loading Data...')
             if self.save_as_attachment:
                 import json
-                file_base64 = json.dumps([target_fields, target_model_data]).encode('base64')
+                file_base64 = json.dumps([self.target_model_id.model, target_fields, target_model_data]).encode('base64')
                 fn = datetime.now().strftime(DEFAULT_SERVER_DATETIME_FORMAT) + '.json'
                 self.env['ir.attachment'].create({
 			    'name': fn,
