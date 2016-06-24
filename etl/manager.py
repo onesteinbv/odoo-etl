@@ -12,7 +12,8 @@ _logger = logging.getLogger(__name__)
 
 
 class manager(models.Model):
-    """"""
+    """
+    """
 
     _name = 'etl.manager'
     _description = 'manager'

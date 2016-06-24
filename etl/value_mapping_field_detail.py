@@ -8,7 +8,8 @@ from openerp.exceptions import Warning
 
 
 class value_mapping_field_detail(models.Model):
-    """"""
+    """
+    """
 
     _name = 'etl.value_mapping_field_detail'
     _description = 'value_mapping_field_detail'

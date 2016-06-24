@@ -16,7 +16,8 @@ import time
 import pprint
 
 class action(models.Model):
-    """"""
+    """
+    """
 
     _name = 'etl.action'
     _description = 'action'
@@ -582,10 +583,26 @@ class action(models.Model):
 
         try:
             _logger.info('Loading Data...')
-            pprint.pprint(target_model_data)
-            import_result = target_model_obj.load(
-                target_fields, target_model_data)
-            vals = {'log': pprint.pformat(import_result)}
+            if self.save_as_attachment:
+                import json
+                file_base64 = json.dumps([target_fields, target_model_data]).encode('base64')
+                fn = datetime.now().strftime(DEFAULT_SERVER_DATETIME_FORMAT) + '.json'
+                self.env['ir.attachment'].create({
+			    'name': fn,
+			    'res_model': 'etl.action', 
+			    'res_name': 'self.name',
+			    'datas': file_base64,
+			    'datas_fname': fn,
+			    'type': 'binary',
+			    'res_id': self.id,
+			    'file_type': 'application/json',
+                            'mimetype': 'application/json'
+                        })
+                vals = {'log': "Saved as attachment"}
+            else:
+                import_result = target_model_obj.load(
+                    target_fields, target_model_data)
+                vals = {'log': pprint.pformat(import_result)}
         except:
             error = sys.exc_info()
             print error

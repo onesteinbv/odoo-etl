@@ -59,6 +59,7 @@
                             <group>
                                 <field name="blocked"/>
                                 <field name="sequence"/>
+                                <field name="save_as_attachment"/>
                                 <field name="repeating_action"/>
                             </group>
                             <group>

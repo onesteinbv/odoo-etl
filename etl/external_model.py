@@ -11,7 +11,8 @@ _logger = logging.getLogger(__name__)
 
 
 class external_model(models.Model):
-    """"""
+    """
+    """
 
     _name = 'etl.external_model'
     _description = 'external_model'
