@@ -24,7 +24,8 @@ class field_mapping(models.Model):
     state = fields.Selection(
         [(u'on_repeating', 'on_repeating'), (u'to_analyze', 'to_analyze'), (u'enabled', 'enabled'), (u'disabled', 'disabled'), (u'other_class', 'other_class')],
         string='State',
-        required=True
+        required=True,
+        default='to_analyze'
         )
     type = fields.Selection(
         [(u'field', 'field'), (u'expression', 'expression'), (u'migrated_id', u'Migrated ID'), (u'value_mapping', u'Value Mapping'), (u'date_adapt', u'Date Adapt'), (u'reference', 'reference')],
@@ -235,9 +236,9 @@ class field_mapping(models.Model):
 
     @api.multi
     def run_expressions(
-            self, rec_id, source_connection=False, target_connection=False):
+            self, rec, source_connection=False, target_connection=False, source_fields=[], target_fields=[]):
         result = []
-
+        rec_id = int(rec[0])
         for field_mapping in self:
             expression_result = False
             if not source_connection or not target_connection:
@@ -262,6 +263,9 @@ class field_mapping(models.Model):
                 'context': dict(self._context),
                 'uid': self.env.user.id,
                 'user': self.env.user,
+                'rec': rec,
+                'source_fields': source_fields,
+                'target_fields': target_fields
             }
             if not field_mapping.expression:
                 raise Warning(_(

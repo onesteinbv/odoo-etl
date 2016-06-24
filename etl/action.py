@@ -12,7 +12,8 @@ from dateutil import relativedelta
 from openerp.tools import DEFAULT_SERVER_DATE_FORMAT, DEFAULT_SERVER_DATETIME_FORMAT
 import logging
 _logger = logging.getLogger(__name__)
-
+import time
+import pprint
 
 class action(models.Model):
     """"""
@@ -370,6 +371,7 @@ class action(models.Model):
     def run_action(
             self, source_connection=False, target_connection=False,
             repeated_action=False):
+        start_time = time.time()
         _logger.info('Actions to run: %i' % len(self.ids))
         action_obj = self.env['etl.action']
         model_obj = self.env['etl.external_model']
@@ -429,7 +431,7 @@ class action(models.Model):
         for field_id in source_fields_m2o:
             field = field_mapping_obj.browse(field_id)
             field_model = field.source_field_id.relation
-            model_id = model_obj.search([('model','=',field_model),('type','ilike','source')])
+            model_id = model_obj.search([('model','=',field_model),('type','ilike','source'),('manager_id','=',field.manager_id.id)])
             field_action = False
             if model_id:
                 field_action = action_obj.search([('source_model_id','=',model_id[0].id)])
@@ -443,6 +445,8 @@ class action(models.Model):
                     elif field_action.target_id_type == 'builded_id' and source_data_m2o[0][2]:
                         new_field_value = '%s_%s' % (field_action.target_id_prefix, str(source_data_m2o[0][2]))
                     source_data_record.append(new_field_value)
+            else:
+                raise Exception('Faulty m2o field: %s' % field.source_field)
 
         _logger.info('Building m2m field mapping...')
         # Read and append source values of type 'field' and type m2m
@@ -450,7 +454,7 @@ class action(models.Model):
         for field_id in source_fields_m2m:
             field = field_mapping_obj.browse(field_id)
             field_model = field.source_field_id.relation
-            model_id = model_obj.search([('model','=',field_model),('type','ilike','source')])
+            model_id = model_obj.search([('model','=',field_model),('type','ilike','source'),('manager_id','=',field.manager_id.id)])
             field_action = False
             if model_id:
                 field_action = action_obj.search([('source_model_id','=',model_id[0].id)])
@@ -536,9 +540,12 @@ class action(models.Model):
                 rec_id = rec[0]
                 expression_results = field_mapping_obj.browse(
                     field_mapping_expression_ids).run_expressions(
-                        int(rec_id),
+                        #int(rec_id),
+                        rec,
                         source_connection,
-                        target_connection)
+                        target_connection,
+                        list(source_fields),
+                        list(target_fields))
                 rec.extend(expression_results)
 
         _logger.info('Building migrated ids...')
@@ -564,10 +571,8 @@ class action(models.Model):
                 _logger.info('Reference_results: %s' % reference_results)
                 rec.extend(reference_results)
 
-        _logger.info('Removing auxliaria .id')
+        _logger.info('Removing extraneous .id')
         target_model_data = []
-        #print source_model_data
-        #print ''
         for record in source_model_data:
             if self.target_id_type == 'source_id':
                 target_model_data.append(record[1:])
@@ -576,17 +581,19 @@ class action(models.Model):
                     self.target_id_prefix, str(record[0]))] + record[2:])
 
         try:
-            _logger.info('Loadding Data...')
+            _logger.info('Loading Data...')
+            pprint.pprint(target_model_data)
             import_result = target_model_obj.load(
                 target_fields, target_model_data)
-            vals = {'log': import_result}
+            vals = {'log': pprint.pformat(import_result)}
         except:
             error = sys.exc_info()
             print error
-            vals = {'log': error}
+            vals = {'log': pprint.pformat(error)}
 
         self.write(vals)
         self.target_model_id.get_records(target_connection)
+        _logger.info('run_actions %s took %d seconds' % (self.name, time.time() - start_time))
 
     @api.multi
     def order_actions(self, exceptions=None):
