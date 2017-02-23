@@ -433,7 +433,32 @@ class action(models.Model):
         _logger.info('Building m2o field mapping...')
         # Read and append source values of type 'field' and type m2m
         source_fields_m2o = [x.id for x in self.field_mapping_ids if x.state==state and x.type == 'field' and x.source_field_id.ttype == 'many2one']
-        for field_id in source_fields_m2o:
+        field_maps = field_mapping_obj.browse(source_fields_m2o)
+        fields_to_fetch = [[
+                               f.id,
+                               [
+                                   '.id',
+                                   f.source_field,
+                                   f.source_field.replace('/', '.')
+                               ]
+                           ] for f in field_maps]
+        ftf_all = []
+        for l in [x[1] for x in fields_to_fetch]:
+            ftf_all.extend(l)
+        source_data_m2o_all = source_model_obj.export_data(
+            [int(d[0]) for d in source_model_data],
+            ftf_all)
+        for i, field_id in enumerate([x[0] for x in fields_to_fetch]):
+            this_fields_source_data_m2o = [
+                [
+                    x[0 + (i * 3)],
+                    x[1 + (i * 3)],
+                    x[2 + (i * 3)]
+                ] for x in source_data_m2o_all['datas']]
+            source_data_m2o_dict = {key: [value1, value2] for
+                                        (key, value1, value2) in
+                                        this_fields_source_data_m2o
+                                    }
             field = field_mapping_obj.browse(field_id)
             field_model = field.source_field_id.relation
             model_id = model_obj.search([('model','=',field_model),('type','ilike','source'),('manager_id','=',field.manager_id.id)])
@@ -443,12 +468,12 @@ class action(models.Model):
             if field_action:
                 field_action = field_action[0]
                 for source_data_record in source_model_data:
-                    source_data_m2o = source_model_obj.export_data([int(source_data_record[0])], ['.id', field.source_field, field.source_field.replace('/','.')])['datas']
+                    source_data_m2o = source_data_m2o_dict[source_data_record[0]]
                     new_field_value = False
-                    if field_action.target_id_type == 'source_id' and source_data_m2o[0][1]:
-                        new_field_value = source_data_m2o[0][1]
-                    elif field_action.target_id_type == 'builded_id' and source_data_m2o[0][2]:
-                        new_field_value = '%s_%s' % (field_action.target_id_prefix, str(source_data_m2o[0][2]))
+                    if field_action.target_id_type == 'source_id' and source_data_m2o[1]:
+                        new_field_value = source_data_m2o[1]
+                    elif field_action.target_id_type == 'builded_id' and source_data_m2o[2]:
+                        new_field_value = '%s_%s' % (field_action.target_id_prefix, str(source_data_m2o[2]))
                     source_data_record.append(new_field_value)
             else:
                 raise Exception('Faulty m2o field: %s' % field.source_field)
@@ -708,7 +733,7 @@ class action(models.Model):
             tz_name = context['tz']
         else:
             tz_name = self.env['res.users'].browse(SUPERUSER_ID).tz
-            print tz_name
+            # print tz_name
             #tz_name = tz_name[0]
         if tz_name:
             utc = pytz.timezone('UTC')
