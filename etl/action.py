@@ -434,31 +434,18 @@ class action(models.Model):
         # Read and append source values of type 'field' and type m2m
         source_fields_m2o = [x.id for x in self.field_mapping_ids if x.state==state and x.type == 'field' and x.source_field_id.ttype == 'many2one']
         field_maps = field_mapping_obj.browse(source_fields_m2o)
-        fields_to_fetch = [[
-                               f.id,
-                               [
-                                   '.id',
-                                   f.source_field,
-                                   f.source_field.replace('/', '.')
-                               ]
-                           ] for f in field_maps]
-        ftf_all = []
-        for l in [x[1] for x in fields_to_fetch]:
-            ftf_all.extend(l)
+        to_export = []
+        for field_map in field_maps:
+            to_export.extend(['.id', field_map.source_field,
+                              field_map.source_field.replace('/', '.')])
         source_data_m2o_all = source_model_obj.export_data(
             [int(d[0]) for d in source_model_data],
-            ftf_all)
-        for i, field_id in enumerate([x[0] for x in fields_to_fetch]):
-            this_fields_source_data_m2o = [
-                [
-                    x[0 + (i * 3)],
-                    x[1 + (i * 3)],
-                    x[2 + (i * 3)]
-                ] for x in source_data_m2o_all['datas']]
-            source_data_m2o_dict = {key: [value1, value2] for
-                                        (key, value1, value2) in
-                                        this_fields_source_data_m2o
-                                    }
+            to_export)
+        for i, field_id in enumerate([fid.id for fid in field_maps]):
+            source_data_m2o_dict = {
+                x[0 + (i * 3)]: [x[1 + (i * 3)], x[2 + (i * 3)]] for
+                x in source_data_m2o_all['datas']
+                }
             field = field_mapping_obj.browse(field_id)
             field_model = field.source_field_id.relation
             model_id = model_obj.search([('model','=',field_model),('type','ilike','source'),('manager_id','=',field.manager_id.id)])
