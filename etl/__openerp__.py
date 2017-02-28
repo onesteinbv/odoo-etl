@@ -69,6 +69,6 @@ Usefull Notes:
     'license': 'AGPL-3',
     'name': u'odoo ETL',
     'test': [],
-    'version': u'1.1',
+    'version': u'1.2',
     'website': 'www.adhoc.com.ar'}
 # vim:expandtab:smartindent:tabstop=4:softtabstop=4:shiftwidth=4:

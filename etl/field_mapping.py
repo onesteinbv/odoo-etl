@@ -96,6 +96,11 @@ class field_mapping(models.Model):
         readonly=True,
         string='Manager'
         )
+    target_id_type_override = fields.Boolean(
+        string='Override Target ID Type',
+        required=False,
+        help="Use source xmlid instead of 'builded' xmlid"
+    )
 
     _constraints = [
     ]
@@ -236,9 +241,10 @@ class field_mapping(models.Model):
 
     @api.multi
     def run_expressions(
-            self, rec, source_connection=False, target_connection=False, source_fields=[], target_fields=[]):
+            self, recs, source_connection=False, target_connection=False, source_fields=[], target_fields=[]):
         result = []
-        rec_id = int(rec[0])
+        # rec_id = int(rec[0])
+        rec_ids = [int(r[0]) for r in recs]
         for field_mapping in self:
             expression_result = False
             if not source_connection or not target_connection:
@@ -255,7 +261,7 @@ class field_mapping(models.Model):
                 'source_connection': source_connection,
                 'target_obj': target_model_obj,
                 'target_connection': target_connection,
-                'rec_id': rec_id,
+                'rec_ids': rec_ids,
                 'pool': self.pool,
                 'time': time,
                 'cr': self._cr,
@@ -263,13 +269,13 @@ class field_mapping(models.Model):
                 'context': dict(self._context),
                 'uid': self.env.user.id,
                 'user': self.env.user,
-                'rec': rec,
+                'recs': recs,
                 'source_fields': source_fields,
                 'target_fields': target_fields
             }
             if not field_mapping.expression:
                 raise Warning(_(
-                    'Warning. Type expression choosen buy not expression set'))
+                    'Warning. Type expression chosen but expression not set.'))
             # nocopy allows to return 'action'
             eval(field_mapping.expression.strip(), cxt, mode="exec")
             if 'result' in cxt['context']:

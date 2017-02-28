@@ -53,7 +53,8 @@
                             /> 
                         <field name="type"
                             attrs="{'required':[('state','in',['enabled','on_repeating'])]}"
-                            /> 
+                            />
+                        <field name="target_id_type_override"/>
                         <field name="source_field_id"
                             domain="[('type','=','source'),('model_id','=',source_model_id)]"
                             attrs="{'required':[('type','in',['migrated_id','reference']),('state','in',['enabled','on_repeating'])]}"
