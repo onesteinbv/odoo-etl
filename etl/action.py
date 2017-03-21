@@ -456,19 +456,15 @@ class action(models.Model):
         field_maps = field_mapping_obj.browse(source_fields_m2o)
         to_export = []
         for field_map in field_maps:
-            # to_export.extend(['.id', field_map.source_field,
-            #                   field_map.source_field.replace('/', '.')])
-            to_export.extend(['.id', field_map.source_field])
+            to_export.extend(['.id', field_map.source_field,
+                              field_map.source_field.replace('/', '.')])
         source_data_m2o_all = source_model_obj.export_data(
             [int(d[0]) for d in source_model_data],
             to_export)
         for i, field_id in enumerate([fid.id for fid in field_maps]):
-            # source_data_m2o_dict = {
-            #     x[0 + (i * 3)]: [x[1 + (i * 3)], x[2 + (i * 3)]] for
-            #     x in source_data_m2o_all['datas']
-            #     }
-            source_data_m2o_dict = {x[0 + (i * 2)]: [x[1 + (i * 2)]] for x in
-             source_data_m2o_all['datas']}
+            source_data_m2o_dict = {x[0 + (i * 3)]: [
+                x[1 + (i * 3)], x[2 + (i * 3)]
+            ] for x in source_data_m2o_all['datas']}
             field = field_mapping_obj.browse(field_id)
             field_model = field.source_field_id.relation
             model_id = model_obj.search(
@@ -486,14 +482,16 @@ class action(models.Model):
                     new_field_value = False
                     if (field_action.target_id_type == 'source_id' and
                             source_data_m2o[0]) or \
-                            (field.target_id_type_override and
+                            (field.target_id_type_override == 'source_id' and
                                  source_data_m2o[0]):
                         new_field_value = source_data_m2o[0]
-                    elif field_action.target_id_type == 'builded_id' and \
-                            source_data_m2o[0]:
+                    elif (field_action.target_id_type == 'builded_id' and \
+                            source_data_m2o[1]) or \
+                            (field.target_id_type_override == 'builded_id' and
+                                 source_data_m2o[1]):
                         new_field_value = '%s_%s' % (
                             field_action.target_id_prefix,
-                            str(source_data_m2o[0]))
+                            str(source_data_m2o[1]))
                     source_data_record.append(new_field_value)
             else:
                 raise Exception('Faulty m2o field: %s' % field.source_field)

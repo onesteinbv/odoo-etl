@@ -96,10 +96,11 @@ class field_mapping(models.Model):
         readonly=True,
         string='Manager'
         )
-    target_id_type_override = fields.Boolean(
+
+    target_id_type_override = fields.Selection(
+        [(u'source_id', 'Source ID'), (u'builded_id', 'Builded ID')],
         string='Override Target ID Type',
-        required=False,
-        help="Use source xmlid instead of 'builded' xmlid"
+        required=False
     )
 
     _constraints = [
