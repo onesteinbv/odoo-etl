@@ -386,18 +386,23 @@ class action(models.Model):
             repeated_action=False):
         start_time = time.time()
         _logger.info('Actions to run: %i' % len(self.ids))
+        vals = {'log': ''}
         action_obj = self.env['etl.action']
         model_obj = self.env['etl.external_model']
         field_mapping_obj = self.env['etl.field_mapping']
         value_mapping_field_detail_obj = self.env[
             'etl.value_mapping_field_detail']
         value_mapping_field_obj = self.env['etl.value_mapping_field']
+        if target_connection:
+            raise NotImplementedError(
+                "Can only run action directly from action at the moment."
+            )  # TODO: implement (low priority)
         if not source_connection or not target_connection:
             (source_connection,
-             target_connection) = self.manager_id.open_connections()
+             target_connections) = self.manager_id.multi_open_connections()
         # add language to connections context
         source_connection.context = {'lang': self.manager_id.source_lang}
-        target_connection.context = {'lang': self.manager_id.target_lang}
+        #target_connection.context = {'lang': self.manager_id.target_lang}  # TODO change to mapping per target connection.
         _logger.info('Running action external_model_id.type %s' % self.name)
 
         domain = literal_eval(self.source_domain)
@@ -407,308 +412,317 @@ class action(models.Model):
             domain.append(('id', '<=', self.to_rec_id))
 
         source_model_obj = source_connection.model(self.source_model_id.model)
-        target_model_obj = target_connection.model(self.target_model_id.model)
+        for target_connection in target_connections:
+#            import pdb
+#            pdb.set_trace()
+            target_connection.context = {'lang': self.manager_id.target_lang}  # TODO change to mapping per target connection.
+            target_model_obj = target_connection.model(self.target_model_id.model)
 
-        source_model_ids = source_model_obj.search(domain)
-        _logger.info('Records to import %i' % len(source_model_ids))
+            source_model_ids = source_model_obj.search(domain)
+            _logger.info('Records to import %i' % len(source_model_ids))
 
-        _logger.info('Building source data...')
-        # Empezamos con  los campos que definimos como id
-        source_fields = ['.id', self.source_id_exp]
-        target_fields = ['id']
+            _logger.info('Building source data...')
+            # Empezamos con  los campos que definimos como id
+            source_fields = ['.id', self.source_id_exp]
+            target_fields = ['id']
 
-        if repeated_action:
-            state = 'on_repeating'
-        else:
-            state = 'enabled'
-
-        # source fields = enabled (or repeating) and type field
-        source_fields.extend([x.source_field for x in self.field_mapping_ids if
-                              x.state == state and x.type == 'field' and x.source_field_id.ttype != 'many2many' and x.source_field_id.ttype != 'many2one'])
-        # print source_fields
-        # target fields = enabled and field then expression then migrated_id
-        target_fields.extend([x.target_field for x in self.field_mapping_ids if
-                              x.state == state and x.type == 'field' and x.source_field_id.ttype != 'many2many' and x.source_field_id.ttype != 'many2one'])
-        target_fields.extend([x.target_field for x in self.field_mapping_ids if
-                              x.state == state and x.type == 'field' and x.source_field_id.ttype == 'many2one'])
-        target_fields.extend([x.target_field for x in self.field_mapping_ids if
-                              x.state == state and x.type == 'field' and x.source_field_id.ttype == 'many2many'])
-        target_fields.extend([x.target_field for x in self.field_mapping_ids if
-                              x.state == state and x.type == 'value_mapping'])
-        target_fields.extend([x.target_field for x in self.field_mapping_ids if
-                              x.state == state and x.type == 'date_adapt'])
-        target_fields.extend([x.target_field for x in self.field_mapping_ids if
-                              x.state == state and x.type == 'expression'])
-        target_fields.extend([x.target_field for x in self.field_mapping_ids if
-                              x.state == state and x.type == 'migrated_id'])
-        target_fields.extend([x.target_field for x in self.field_mapping_ids if
-                              x.state == state and x.type == 'reference'])
-
-        # Read and append source values of type 'field' and type not m2m
-        _logger.info('Building none m2m field mapping...')
-        source_model_data = source_model_obj.export_data(
-            source_model_ids, source_fields)['datas']
-
-        _logger.info('Building m2o field mapping...')
-        # Read and append source values of type 'field' and type m2m
-        source_fields_m2o = [x.id for x in self.field_mapping_ids if
-                             x.state == state and x.type == 'field' and x.source_field_id.ttype == 'many2one']
-        field_maps = field_mapping_obj.browse(source_fields_m2o)
-        to_export = []
-        for field_map in field_maps:
-            to_export.extend(['.id', field_map.source_field,
-                              field_map.source_field.replace('/', '.')])
-        source_data_m2o_all = source_model_obj.export_data(
-            [int(d[0]) for d in source_model_data],
-            to_export)
-        for i, field_id in enumerate([fid.id for fid in field_maps]):
-            source_data_m2o_dict = {x[0 + (i * 3)]: [
-                x[1 + (i * 3)], x[2 + (i * 3)]
-            ] for x in source_data_m2o_all['datas']}
-            field = field_mapping_obj.browse(field_id)
-            field_model = field.source_field_id.relation
-            model_id = model_obj.search(
-                [('model', '=', field_model), ('type', 'ilike', 'source'),
-                 ('manager_id', '=', field.manager_id.id)])
-            field_action = False
-            if model_id:
-                field_action = action_obj.search(
-                    [('source_model_id', '=', model_id[0].id)])
-            if field_action:
-                field_action = field_action[0]
-                for source_data_record in source_model_data:
-                    source_data_m2o = source_data_m2o_dict[
-                        source_data_record[0]]
-                    new_field_value = False
-                    if (field_action.target_id_type == 'source_id' and
-                            source_data_m2o[0]) or \
-                            (field.target_id_type_override == 'source_id' and
-                                 source_data_m2o[0]):
-                        new_field_value = source_data_m2o[0]
-                    elif (field_action.target_id_type == 'builded_id' and \
-                            source_data_m2o[1]) or \
-                            (field.target_id_type_override == 'builded_id' and
-                                 source_data_m2o[1]):
-                        new_field_value = '%s_%s' % (
-                            field_action.target_id_prefix,
-                            str(source_data_m2o[1]))
-                    source_data_record.append(new_field_value)
+            if repeated_action:
+                state = 'on_repeating'
             else:
-                raise Exception('Faulty m2o field: %s' % field.source_field)
+                state = 'enabled'
 
-        _logger.info('Building m2m field mapping...')
-        # Read and append source values of type 'field' and type m2m
-        source_fields_m2m = [x.id for x in self.field_mapping_ids if
-                             x.state == state and x.type == 'field' and x.source_field_id.ttype == 'many2many']
-        for field_id in source_fields_m2m:
-            field = field_mapping_obj.browse(field_id)
-            field_model = field.source_field_id.relation
-            model_id = model_obj.search(
-                [('model', '=', field_model), ('type', 'ilike', 'source'),
-                 ('manager_id', '=', field.manager_id.id)])
-            field_action = False
-            if model_id:
-                field_action = action_obj.search(
-                    [('source_model_id', '=', model_id[0].id)])
-            if field_action:
-                field_action = field_action[0]
-                model_data_obj = source_connection.model('ir.model.data')
-                for source_data_record in source_model_data:
-                    source_data_m2m = \
-                        source_model_obj.export_data(
-                            [int(source_data_record[0])],
-                            ['.id', field.source_field])[
-                            'datas']
-                    new_field_value = False
-                    for readed_record in source_data_m2m:
-                        if readed_record[1]:
-                            for value in readed_record[1].split(','):
-                                value_id = model_data_obj.search([('model',
-                                                                   'ilike',
-                                                                   field.source_field_id.relation),
-                                                                  ('name',
-                                                                   'ilike',
-                                                                   value.split(
-                                                                       '.')[
-                                                                       -1])])
-                                if value_id:
-                                    value_id = \
-                                        model_data_obj.export_data(
-                                            [value_id[0]],
-                                            ['.id',
-                                             'res_id'])[
-                                            'datas']
-                                    value_id = value_id[0][1]
-                                if field_action.target_id_type == 'source_id' and value:
-                                    new_field_value = value
-                                elif field_action.target_id_type == 'builded_id' and value_id:
-                                    if new_field_value:
-                                        new_field_value = new_field_value + ',' + '%s_%s' % (
-                                            field_action.target_id_prefix,
-                                            str(value_id))
-                                    else:
-                                        new_field_value = '%s_%s' % (
-                                            field_action.target_id_prefix,
-                                            str(value_id))
-                    source_data_record.append(new_field_value)
+            # source fields = enabled (or repeating) and type field
+            source_fields.extend([x.source_field for x in self.field_mapping_ids if
+                                  x.state == state and x.type == 'field' and x.source_field_id.ttype != 'many2many' and x.source_field_id.ttype != 'many2one'])
+            # print source_fields
+            # target fields = enabled and field then expression then migrated_id
+            target_fields.extend([x.target_field for x in self.field_mapping_ids if
+                                  x.state == state and x.type == 'field' and x.source_field_id.ttype != 'many2many' and x.source_field_id.ttype != 'many2one'])
+            target_fields.extend([x.target_field for x in self.field_mapping_ids if
+                                  x.state == state and x.type == 'field' and x.source_field_id.ttype == 'many2one'])
+            target_fields.extend([x.target_field for x in self.field_mapping_ids if
+                                  x.state == state and x.type == 'field' and x.source_field_id.ttype == 'many2many'])
+            target_fields.extend([x.target_field for x in self.field_mapping_ids if
+                                  x.state == state and x.type == 'value_mapping'])
+            target_fields.extend([x.target_field for x in self.field_mapping_ids if
+                                  x.state == state and x.type == 'date_adapt'])
+            target_fields.extend([x.target_field for x in self.field_mapping_ids if
+                                  x.state == state and x.type == 'expression'])
+            target_fields.extend([x.target_field for x in self.field_mapping_ids if
+                                  x.state == state and x.type == 'migrated_id'])
+            target_fields.extend([x.target_field for x in self.field_mapping_ids if
+                                  x.state == state and x.type == 'reference'])
 
-        _logger.info('Building value mapping mapping...')
-        # Read and append source values of type 'value_mapping'
-        source_fields_value_mapping = [x.source_field for x in
+            # Read and append source values of type 'field' and type not m2m
+            _logger.info('Building none m2m field mapping...')
+            source_model_data = source_model_obj.export_data(
+                source_model_ids, source_fields)['datas']
+
+            _logger.info('Building m2o field mapping...')
+            # Read and append source values of type 'field' and type m2m
+            source_fields_m2o = [x.id for x in self.field_mapping_ids if
+                                 x.state == state and x.type == 'field' and x.source_field_id.ttype == 'many2one']
+            field_maps = field_mapping_obj.browse(source_fields_m2o)
+            to_export = []
+            for field_map in field_maps:
+                to_export.extend(['.id', field_map.source_field,
+                                  field_map.source_field.replace('/', '.')])
+            source_data_m2o_all = source_model_obj.export_data(
+                [int(d[0]) for d in source_model_data],
+                to_export)
+            for i, field_id in enumerate([fid.id for fid in field_maps]):
+                source_data_m2o_dict = {x[0 + (i * 3)]: [
+                    x[1 + (i * 3)], x[2 + (i * 3)]
+                ] for x in source_data_m2o_all['datas']}
+                field = field_mapping_obj.browse(field_id)
+                field_model = field.source_field_id.relation
+                model_id = model_obj.search(
+                    [('model', '=', field_model), ('type', 'ilike', 'source'),
+                     ('manager_id', '=', field.manager_id.id)])
+                field_action = False
+                if model_id:
+                    field_action = action_obj.search(
+                        [('source_model_id', '=', model_id[0].id)])
+                if field_action:
+                    field_action = field_action[0]
+                    for source_data_record in source_model_data:
+                        source_data_m2o = source_data_m2o_dict[
+                            source_data_record[0]]
+                        new_field_value = False
+                        if (field_action.target_id_type == 'source_id' and
+                                source_data_m2o[0]) or \
+                                (field.target_id_type_override == 'source_id' and
+                                     source_data_m2o[0]):
+                            new_field_value = source_data_m2o[0]
+                        elif (field_action.target_id_type == 'builded_id' and \
+                                source_data_m2o[1]) or \
+                                (field.target_id_type_override == 'builded_id' and
+                                     source_data_m2o[1]):
+                            new_field_value = '%s_%s' % (
+                                field_action.target_id_prefix,
+                                str(source_data_m2o[1]))
+                        source_data_record.append(new_field_value)
+                else:
+                    raise Exception('Faulty m2o field: %s' % field.source_field)
+
+            _logger.info('Building m2m field mapping...')
+            # Read and append source values of type 'field' and type m2m
+            source_fields_m2m = [x.id for x in self.field_mapping_ids if
+                                 x.state == state and x.type == 'field' and x.source_field_id.ttype == 'many2many']
+            for field_id in source_fields_m2m:
+                field = field_mapping_obj.browse(field_id)
+                field_model = field.source_field_id.relation
+                model_id = model_obj.search(
+                    [('model', '=', field_model), ('type', 'ilike', 'source'),
+                     ('manager_id', '=', field.manager_id.id)])
+                field_action = False
+                if model_id:
+                    field_action = action_obj.search(
+                        [('source_model_id', '=', model_id[0].id)])
+                if field_action:
+                    field_action = field_action[0]
+                    model_data_obj = source_connection.model('ir.model.data')
+                    for source_data_record in source_model_data:
+                        source_data_m2m = \
+                            source_model_obj.export_data(
+                                [int(source_data_record[0])],
+                                ['.id', field.source_field])[
+                                'datas']
+                        new_field_value = False
+                        for readed_record in source_data_m2m:
+                            if readed_record[1]:
+                                for value in readed_record[1].split(','):
+                                    value_id = model_data_obj.search([('model',
+                                                                       'ilike',
+                                                                       field.source_field_id.relation),
+                                                                      ('name',
+                                                                       'ilike',
+                                                                       value.split(
+                                                                           '.')[
+                                                                           -1])])
+                                    if value_id:
+                                        value_id = \
+                                            model_data_obj.export_data(
+                                                [value_id[0]],
+                                                ['.id',
+                                                 'res_id'])[
+                                                'datas']
+                                        value_id = value_id[0][1]
+                                    if field_action.target_id_type == 'source_id' and value:
+                                        new_field_value = value
+                                    elif field_action.target_id_type == 'builded_id' and value_id:
+                                        if new_field_value:
+                                            new_field_value = new_field_value + ',' + '%s_%s' % (
+                                                field_action.target_id_prefix,
+                                                str(value_id))
+                                        else:
+                                            new_field_value = '%s_%s' % (
+                                                field_action.target_id_prefix,
+                                                str(value_id))
+                        source_data_record.append(new_field_value)
+
+            _logger.info('Building value mapping mapping...')
+            # Read and append source values of type 'value_mapping'
+            source_fields_value_mapping = [x.source_field for x in
+                                           self.field_mapping_ids if
+                                           x.state == state and x.type == 'value_mapping']
+            # print 'source_fields_value_mapping', source_fields_value_mapping
+            source_data_value_mapping = \
+                source_model_obj.export_data(source_model_ids,
+                                             source_fields_value_mapping)['datas']
+            # print 'source_data_value_mapping', source_data_value_mapping
+            source_value_mapping_id = [x.value_mapping_field_id.id for x in
                                        self.field_mapping_ids if
                                        x.state == state and x.type == 'value_mapping']
-        # print 'source_fields_value_mapping', source_fields_value_mapping
-        source_data_value_mapping = \
-            source_model_obj.export_data(source_model_ids,
-                                         source_fields_value_mapping)['datas']
-        # print 'source_data_value_mapping', source_data_value_mapping
-        source_value_mapping_id = [x.value_mapping_field_id.id for x in
-                                   self.field_mapping_ids if
-                                   x.state == state and x.type == 'value_mapping']
-        # print 'source_value_mapping_id', source_value_mapping_id
-        for readed_record, source_data_record in zip(source_data_value_mapping,
-                                                     source_model_data):
-            target_record = []
-            for field_value, value_mapping_id in zip(readed_record,
-                                                     source_value_mapping_id):
-                new_field_value = False
-                value_mapping = value_mapping_field_obj.browse(
-                    value_mapping_id)
-                # TODO mejorar esta cosa horrible, no hace falta guardar en dos clases separadas, deberia usar una sola para selection y para id
-                if value_mapping.type == 'id':
-                    new_field = value_mapping_field_detail_obj.search([
-                        ('source_external_model_record_id.ext_id', '=',
-                         field_value),
-                        ('value_mapping_field_id', '=', value_mapping_id)],
-                        limit=1)
-                    # if new_fields:
-                    new_field_value = new_field.target_external_model_record_id.ext_id
-                elif value_mapping.type == 'selection':
-                    new_field = value_mapping_field_detail_obj.search([
-                        ('source_value_id.ext_id', '=', field_value),
-                        ('value_mapping_field_id', '=', value_mapping_id)],
-                        limit=1)
-                    new_field_value = new_field.target_value_id.ext_id
-                # Convertimos a false todos aquellos mapeos al que no se les asigno pareja
-                # Si el modelo permite valores false va a andar bien, si no va a dar el error y debera mapearse
-                if new_field_value is None:
+            # print 'source_value_mapping_id', source_value_mapping_id
+            for readed_record, source_data_record in zip(source_data_value_mapping,
+                                                         source_model_data):
+                import pdb
+                pdb.set_trace()
+                target_record = []
+                for field_value, value_mapping_id in zip(readed_record,
+                                                         source_value_mapping_id):
                     new_field_value = False
-                target_record.append(new_field_value)
-            source_data_record.extend(target_record)
+                    value_mapping = value_mapping_field_obj.browse(
+                        value_mapping_id)
+                    # TODO mejorar esta cosa horrible, no hace falta guardar en dos clases separadas, deberia usar una sola para selection y para id
+                    if value_mapping.type == 'id':
+                        new_field = value_mapping_field_detail_obj.search([
+                            ('source_external_model_record_id.ext_id', '=',
+                             field_value),
+                            ('value_mapping_field_id', '=', value_mapping_id)],
+                            limit=1)
+                        # if new_fields:
+                        new_field_value = new_field.target_external_model_record_id.ext_id
+                    elif value_mapping.type == 'selection':
+                        new_field = value_mapping_field_detail_obj.search([
+                            ('source_value_id.ext_id', '=', field_value),
+                            ('value_mapping_field_id', '=', value_mapping_id)],
+                            limit=1)
+                        new_field_value = new_field.target_value_id.ext_id
+                    # Convertimos a false todos aquellos mapeos al que no se les asigno pareja
+                    # Si el modelo permite valores false va a andar bien, si no va a dar el error y debera mapearse
+                    if new_field_value is None:
+                        new_field_value = False
+                    target_record.append(new_field_value)
+                source_data_record.extend(target_record)
 
-        _logger.info('Building date adapt...')
-        # Read and append source values of type 'date_adapt'
-        source_fields_date_adapt = [x.source_field for x in
-                                    self.field_mapping_ids if
-                                    x.state == state and x.type == 'date_adapt']
-        source_data_date_adapt = source_model_obj.export_data(source_model_ids,
-                                                              source_fields_date_adapt)[
-            'datas']
-        source_mapping_date_adapt = [x for x in self.field_mapping_ids if
-                                     x.state == state and x.type == 'date_adapt']
-        for readed_record, source_data_record in zip(source_data_date_adapt,
-                                                     source_model_data):
-            target_record = []
-            for field_value, source_mapping in zip(readed_record,
-                                                   source_mapping_date_adapt):
-                if source_mapping.source_field_id.ttype == 'datetime' and field_value:
-                    if source_mapping.target_field_id.ttype == 'date':
-                        # TODO, no estoy seguro si esta forma de truncarlo funciona bien
-                        field_value = field_value[:10]
-                if source_mapping.source_field_id.ttype == 'date' and field_value:
-                    if source_mapping.target_field_id.ttype == 'datetime':
-                        field_value = self.date_to_datetime(field_value)
-                target_record.append(field_value)
-            source_data_record.extend(target_record)
+            _logger.info('Building date adapt...')
+            # Read and append source values of type 'date_adapt'
+            source_fields_date_adapt = [x.source_field for x in
+                                        self.field_mapping_ids if
+                                        x.state == state and x.type == 'date_adapt']
+            source_data_date_adapt = source_model_obj.export_data(source_model_ids,
+                                                                  source_fields_date_adapt)[
+                'datas']
+            source_mapping_date_adapt = [x for x in self.field_mapping_ids if
+                                         x.state == state and x.type == 'date_adapt']
+            for readed_record, source_data_record in zip(source_data_date_adapt,
+                                                         source_model_data):
+                target_record = []
+                for field_value, source_mapping in zip(readed_record,
+                                                       source_mapping_date_adapt):
+                    if source_mapping.source_field_id.ttype == 'datetime' and field_value:
+                        if source_mapping.target_field_id.ttype == 'date':
+                            # TODO, no estoy seguro si esta forma de truncarlo funciona bien
+                            field_value = field_value[:10]
+                    if source_mapping.source_field_id.ttype == 'date' and field_value:
+                        if source_mapping.target_field_id.ttype == 'datetime':
+                            field_value = self.date_to_datetime(field_value)
+                    target_record.append(field_value)
+                source_data_record.extend(target_record)
 
-        _logger.info('Building expressions...')
-        field_mapping_expression_ids = [x.id for x in self.field_mapping_ids if
-                                        x.state == state and x.type == 'expression']
-        if field_mapping_expression_ids:
-            # for rec in source_model_data:
-            # rec_id = rec[0]
-            expression_results = field_mapping_obj.browse(
-                field_mapping_expression_ids).run_expressions(
-                # int(rec_id),
-                source_model_data,
-                source_connection,
-                target_connection,
-                list(source_fields),
-                list(target_fields))
-            try:
-                for i, field in enumerate(field_mapping_expression_ids):
-                    for j, rec in enumerate(source_model_data):
-                        rec.append(expression_results[i][j])
-            except IndexError:
-                raise Exception("For target field %s ensure the Expression "
-                                "returns a list of exactly %s values" % (
-                    field_mapping_obj.browse([field]).target_field, len(source_model_data)
-                ))
-
-
-        _logger.info('Building migrated ids...')
-        field_mapping_migrated_id_ids = [x.id for x in self.field_mapping_ids if
-                                         x.state == state and x.type == 'migrated_id']
-        if field_mapping_migrated_id_ids:
-            for rec in source_model_data:
-                rec_id = rec[0]
-                migrated_id_results = field_mapping_obj.browse(
-                    field_mapping_migrated_id_ids).get_migrated_id(
-                    int(rec_id),
+            _logger.info('Building expressions...')
+            field_mapping_expression_ids = [x.id for x in self.field_mapping_ids if
+                                            x.state == state and x.type == 'expression']
+            if field_mapping_expression_ids:
+                # for rec in source_model_data:
+                # rec_id = rec[0]
+                expression_results = field_mapping_obj.browse(
+                    field_mapping_expression_ids).run_expressions(
+                    # int(rec_id),
+                    source_model_data,
                     source_connection,
-                    target_connection)
-                rec.extend(migrated_id_results)
+                    target_connection,
+                    list(source_fields),
+                    list(target_fields))
+                try:
+                    for i, field in enumerate(field_mapping_expression_ids):
+                        for j, rec in enumerate(source_model_data):
+                            rec.append(expression_results[i][j])
+                except IndexError:
+                    raise Exception("For target field %s ensure the Expression "
+                                    "returns a list of exactly %s values" % (
+                        field_mapping_obj.browse([field]).target_field, len(source_model_data)
+                    ))
 
-        _logger.info('Building reference fields...')
-        field_mapping_reference_ids = [x.id for x in self.field_mapping_ids if
-                                       x.state == state and x.type == 'reference']
-        if field_mapping_reference_ids:
-            for rec in source_model_data:
-                rec_id = rec[0]
-                reference_results = field_mapping_obj.browse(
-                    field_mapping_reference_ids).get_reference(
-                    int(rec_id), source_connection, target_connection)
-                _logger.info('Reference_results: %s' % reference_results)
-                rec.extend(reference_results)
 
-        _logger.info('Removing extraneous .id')
-        target_model_data = []
-        for record in source_model_data:
-            if self.target_id_type == 'source_id':
-                target_model_data.append(record[1:])
-            elif self.target_id_type == 'builded_id':
-                target_model_data.append(['%s_%s' % (
-                    self.target_id_prefix, str(record[0]))] + record[2:])
+            _logger.info('Building migrated ids...')
+            field_mapping_migrated_id_ids = [x.id for x in self.field_mapping_ids if
+                                             x.state == state and x.type == 'migrated_id']
+            if field_mapping_migrated_id_ids:
+                for rec in source_model_data:
+                    rec_id = rec[0]
+                    migrated_id_results = field_mapping_obj.browse(
+                        field_mapping_migrated_id_ids).get_migrated_id(
+                        int(rec_id),
+                        source_connection,
+                        target_connection)
+                    rec.extend(migrated_id_results)
 
-        try:
-            _logger.info('Loading Data...')
-            if self.save_as_attachment:
-                import json
-                file_base64 = json.dumps(
-                    [self.target_model_id.model, target_fields,
-                     target_model_data]).encode('base64')
-                fn = datetime.now().strftime(
-                    DEFAULT_SERVER_DATETIME_FORMAT) + '.json'
-                self.env['ir.attachment'].create({
-                    'name': fn,
-                    'res_model': 'etl.action',
-                    'res_name': 'self.name',
-                    'datas': file_base64,
-                    'datas_fname': fn,
-                    'type': 'binary',
-                    'res_id': self.id,
-                    'file_type': 'application/json',
-                    'mimetype': 'application/json'
-                })
-                vals = {'log': "Saved as attachment"}
-            else:
-                import_result = target_model_obj.load(
-                    target_fields, target_model_data)
-                vals = {'log': import_result}
-        except:
-            error = sys.exc_info()
-            print error
-            vals = {'log': pprint.pformat(error)}
+            _logger.info('Building reference fields...')
+            field_mapping_reference_ids = [x.id for x in self.field_mapping_ids if
+                                           x.state == state and x.type == 'reference']
+            if field_mapping_reference_ids:
+                for rec in source_model_data:
+                    rec_id = rec[0]
+                    reference_results = field_mapping_obj.browse(
+                        field_mapping_reference_ids).get_reference(
+                        int(rec_id), source_connection, target_connection)
+                    _logger.info('Reference_results: %s' % reference_results)
+                    rec.extend(reference_results)
+
+            _logger.info('Removing extraneous .id')
+            target_model_data = []
+            for record in source_model_data:
+                if self.target_id_type == 'source_id':
+                    target_model_data.append(record[1:])
+                elif self.target_id_type == 'builded_id':
+                    target_model_data.append(['%s_%s' % (
+                        self.target_id_prefix, str(record[0]))] + record[2:])
+
+            try:
+                _logger.info('Loading Data...')
+                if self.save_as_attachment:
+                    import json
+                    file_base64 = json.dumps(
+                        [self.target_model_id.model, target_fields,
+                         target_model_data]).encode('base64')
+                    fn = datetime.now().strftime(
+                        DEFAULT_SERVER_DATETIME_FORMAT) + '.json'
+                    self.env['ir.attachment'].create({
+                        'name': fn,
+                        'res_model': 'etl.action',
+                        'res_name': 'self.name',
+                        'datas': file_base64,
+                        'datas_fname': fn,
+                        'type': 'binary',
+                        'res_id': self.id,
+                        'file_type': 'application/json',
+                        'mimetype': 'application/json'
+                    })
+                    vals.update({'log': "Saved as attachment"})
+                else:
+                    import_result = target_model_obj.load(
+                        target_fields, target_model_data)
+                    vals['log'] += \
+                        target_connection.__repr__().split()[1].\
+                        rstrip('>').strip("'") + ':\n' + \
+                        str(import_result) + '\n' * 2
+            except:
+                error = sys.exc_info()
+                print error
+                vals['log'] += str(pprint.pformat(error))
 
         self.write(vals)
         self.target_model_id.get_records(target_connection)

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<openerp>
+    <data>
+        <!-- TREEVIEW -->
+        <record id="view_etl_multi_tgt_db_tree" model="ir.ui.view">
+            <field name="name">etl.multi.tgt.db.tree</field>
+            <field name="model">etl.multi_tgt_db</field>
+            <field name="arch" type="xml">
+                <tree string="multi target db mapping">
+                    <field name="target_database"/>
+                    <field name="target_hostname"/>
+                    <field name="target_port"/>
+                    <field name="target_login"/>
+                    <field name="target_password" password="True"/>
+                    <field name="src_field"/>
+                </tree>
+            </field>
+        </record>
+
+        <record id="view_etl_multi_tgt_db_form" model="ir.ui.view">
+            <field name="name">etl.multi.tgt.db.form</field>
+            <field name="model">etl.multi_tgt_db</field>
+            <field name="arch" type="xml">
+                <form string="multi target db mapping">
+                    <group>
+                        <field name="manager_id" required="'from_manager' not in context" invisible="'from_manager' in context"/>
+                        <field name="target_database"/>
+                        <field name="target_hostname"/>
+                        <field name="target_port"/>
+                        <field name="target_login"/>
+                        <field name="target_password" password="True"/>
+                        <field name="src_field"/>
+                    </group>
+                </form>
+            </field>
+        </record>
+
+    </data>
+</openerp>

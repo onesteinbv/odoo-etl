@@ -3,6 +3,8 @@
 
 #odoo-etl
 
+Modified version to allow output to multiple target databases. This is especially useful when performing transformations on source databases which are configured with multi company/country/'operating unit'.
+
 Odoo data manipulation, like an small ETL (Extract, Transform and Load) for odoo databases.
 
 The main idea of the project is to give functional users the availability to move data from one odoo database to another odoo database. The design is quite simple, it use native odoo methods (primarily load and export_data).

@@ -98,6 +98,11 @@
                                     <field name="action_ids" context="{'from_manager':True}"/>
                                 </group>
                             </page>
+                            <page string="Target DB Mapping">
+                                <group col="1">
+                                    <field name="multi_tgt_db_ids" context="{'default_manager_id':id, 'from_manager': True}"/>
+                                </group>
+                            </page>
                             <page string="Exceptions">
                                 <group col="1">
                                     <field name="model_exception_words"/>

@@ -4,6 +4,7 @@ import external_model_record
 import field_mapping
 import field
 import manager
+from . import multi_tgt_db
 import value_mapping_field_value
 import action
 import value_mapping_field_detail

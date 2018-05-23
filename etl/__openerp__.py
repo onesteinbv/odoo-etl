@@ -32,6 +32,7 @@
                 u'view/field_view.xml',
                 u'view/action_view.xml',
                 u'view/manager_view.xml',
+                u'view/multi_tgt_db_view.xml',
                 u'view/value_mapping_field_value_view.xml',
                 u'view/value_mapping_field_detail_view.xml',
                 u'data/value_mapping_field_properties.xml',

@@ -43,6 +43,11 @@ class manager(models.Model):
         string='Source Password',
         required=True
         )
+    multi_tgt_db_ids = fields.One2many(
+        'etl.multi_tgt_db',
+        'manager_id',
+        string='Multiple Target DB Mapping',
+        )
     target_hostname = fields.Char(
         string='Target Hostname',
         required=True,
@@ -179,14 +184,44 @@ class manager(models.Model):
         try:
             _logger.info('Getting target connection')
             target_connection = Client(
-                '%s:%i' % (self.target_hostname, self.target_port),
-                db=self.target_database,
-                user=self.target_login,
-                password=self.target_password)
+                    '%s:%i' % (self.target_hostname, self.target_port),
+                    db=self.target_database,
+                    user=self.target_login,
+                    password=self.target_password)
         except Exception, e:
             raise Warning(
                 _("Unable to Connect to Database. 'Error: %s'") % e)
         return [source_connection, target_connection]
+
+    @api.multi
+    def multi_open_connections(self):
+        '''
+        '''
+        self.ensure_one()
+        try:
+            _logger.info('Getting source connection')
+            source_connection = Client(
+                '%s:%i' % (self.source_hostname, self.source_port),
+                db=self.source_database,
+                user=self.source_login,
+                password=self.source_password)
+        except Exception, e:
+            raise Warning(
+                _("Unable to Connect to Database. 'Error: %s'") % e)
+        try:
+            _logger.info('Getting target connections')
+            target_connections = [
+                Client(
+                    '%s:%i' % (conn.target_hostname, conn.target_port),
+                    db=conn.target_database,
+                    user=conn.target_login,
+                    password=conn.target_password
+                ) for conn in self.multi_tgt_db_ids
+            ]
+        except Exception, e:
+            raise Warning(
+                _("Unable to Connect to Database. 'Error: %s'") % e)
+        return [source_connection, target_connections]
 
     @api.one
     def read_active_source_models(self):
