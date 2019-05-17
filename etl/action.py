@@ -8,7 +8,7 @@ import sys
 import pytz
 from ast import literal_eval
 from datetime import datetime
-from dateutil import relativedelta
+from xmlrpclib import DateTime
 from openerp.tools import DEFAULT_SERVER_DATE_FORMAT, \
     DEFAULT_SERVER_DATETIME_FORMAT
 import logging
@@ -30,6 +30,7 @@ class action(models.Model):
     blocked = fields.Boolean(
         string='Blocked',
         copy=False,
+        default=True
     )
     sequence = fields.Integer(
         string='Sequence'
@@ -44,13 +45,16 @@ class action(models.Model):
         string='Name',
         required=True
     )
-    source_domain = fields.Char(
+    source_domain = fields.Text(
         string='Source Domain',
         required=True,
         default='[]'
     )
     log = fields.Text(
         string='Log'
+    )
+    log_parsed = fields.Text(
+        string='Parsed Log'
     )
     note = fields.Html(
         string='Notes'
@@ -446,8 +450,20 @@ class action(models.Model):
 
         # Read and append source values of type 'field' and type not m2m
         _logger.info('Building none m2m field mapping...')
-        source_model_data = source_model_obj.export_data(
-            source_model_ids, source_fields)['datas']
+        find_err = False
+        try:
+            source_model_data = source_model_obj.export_data(
+                source_model_ids, source_fields)['datas']
+        except:
+            while source_fields and find_err:
+                popped = source_fields.pop(-1)
+                try:
+                    source_model_data = source_model_obj.export_data(
+                        source_model_ids, source_fields)['datas']
+                    raise Exception('This is the problem: ' + popped)
+                except:
+                    pass
+            raise
 
         _logger.info('Building m2o field mapping...')
         # Read and append source values of type 'field' and type m2m
@@ -623,7 +639,7 @@ class action(models.Model):
 
         _logger.info('Building expressions...')
         field_mapping_expression_ids = [x.id for x in self.field_mapping_ids if
-                                        x.state == state and x.type == 'expression']
+                                            x.state == state and x.type == 'expression']
         if field_mapping_expression_ids:
             # for rec in source_model_data:
             # rec_id = rec[0]
@@ -702,6 +718,15 @@ class action(models.Model):
                 })
                 vals = {'log': "Saved as attachment"}
             else:
+                for i, target_record in enumerate(target_model_data):
+                    for j, target_value in enumerate(target_record):
+                        if isinstance(target_value, DateTime):
+                            target_value_formatted = target_value.value[0:4] + '-' + \
+                                                     target_value.value[4:6] + '-' + \
+                                                     target_value.value[6:8] + ' ' + \
+                                                     target_value.value[9:]
+                            target_model_data[i][j] = target_value_formatted
+
                 import_result = target_model_obj.load(
                     target_fields, target_model_data)
                 vals = {'log': import_result}
@@ -822,5 +847,45 @@ class action(models.Model):
             user_datetime = local_timestamp.astimezone(utc)
             return user_datetime.strftime(DEFAULT_SERVER_DATETIME_FORMAT)
         return user_date.strftime(DEFAULT_SERVER_DATETIME_FORMAT)
+
+    @api.multi
+    def fetch_missing(self):
+        self.ensure_one()
+        (source_connection,
+             target_connection) = self.manager_id.open_connections()
+        log = literal_eval(self.log)
+        items = log['messages']
+        missing = {}
+        for item in items:
+            if 'No matching record found for external id' in item['message']:
+                if item['field'] not in missing:
+                    missing[item['field']] = []
+                xml_id = item['message']
+                xml_id = xml_id.replace("No matching record found for external id '", '')
+                xml_id = xml_id[:xml_id.index("'")]
+
+                if xml_id not in missing[item['field']]:
+                    missing[item['field']].append(xml_id)
+
+        for field_name, xml_ids in missing.iteritems():
+            mapping = self.field_mapping_ids.filtered(lambda m: m.source_field_id.name == field_name)
+            source_model_obj = source_connection.model(mapping.source_field_id.relation)
+            for i, xml_id in enumerate(xml_ids):
+                missing[field_name][i] = source_model_obj.get(xml_id)
+
+        parsed_log = ''
+        for field_name, records in missing.iteritems():
+            parsed_log += "** %s.name **\n" % field_name
+            for rec in records:
+                parsed_log += "'%s',\n" % rec.name
+        parsed_log += '\n\n'
+        for field_name, records in missing.iteritems():
+            parsed_log += "** %s.id **\n" % field_name
+            for rec in records:
+                parsed_log += "%s,\n" % rec.id
+
+        self.log_parsed = parsed_log
+
+
 
 # vim:expandtab:smartindent:tabstop=4:softtabstop=4:shiftwidth=4:

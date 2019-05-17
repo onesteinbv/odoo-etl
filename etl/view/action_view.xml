@@ -88,7 +88,9 @@
                                 <!-- </group> -->
                             </page>
                             <page string="Log">
+                                <button name="fetch_missing" string="Fetch Missing records" type="object"/>
                                 <field name="log"/>
+                                <field name="log_parsed"/>
                             </page>     
                             <page string="Notes">
                                 <field name="note"/>

@@ -17,9 +17,19 @@ class field_mapping(models.Model):
     _name = 'etl.field_mapping'
     _description = 'field_mapping'
 
+    expression_template_id = fields.Many2one(
+        comodel_name='etl.expression_template'
+    )
+
+    @api.onchange('expression_template_id')
+    def _onchange_expression_template_id(self):
+        for mapping in self:
+            if mapping.expression_template_id:
+                mapping.expression = mapping.expression_template_id.expr
+
     blocked = fields.Boolean(
         string='Blocked',
-        default=False
+        default=True
         )
     state = fields.Selection(
         [(u'on_repeating', 'on_repeating'), (u'to_analyze', 'to_analyze'), (u'enabled', 'enabled'), (u'disabled', 'disabled'), (u'other_class', 'other_class')],
@@ -278,10 +288,12 @@ class field_mapping(models.Model):
                 raise Warning(_(
                     'Warning. Type expression chosen but expression not set.'))
             # nocopy allows to return 'action'
-            eval(field_mapping.expression.strip(), cxt, mode="exec")
+            stripped_expr = field_mapping.expression.strip()
+            eval(stripped_expr, cxt, mode="exec")
             if 'result' in cxt['context']:
                 expression_result = cxt['context'].get('result')
             result.append(expression_result)
         return result
 
 # vim:expandtab:smartindent:tabstop=4:softtabstop=4:shiftwidth=4:
+

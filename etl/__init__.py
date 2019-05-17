@@ -9,4 +9,5 @@ import action
 import value_mapping_field_detail
 import wizard
 import report
+import expression_template
 # vim:expandtab:smartindent:tabstop=4:softtabstop=4:shiftwidth=4:
